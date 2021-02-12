@@ -1,20 +1,92 @@
 #!/usr/bin/env python3
-"""
-Log keeper follow all symlinks in given directory and creates hardlinks to prevent lost data during file rotation
-Usage:
-
-KEEP_TIME=3600 ./logs-keeper <directory_path>
-"""
-
 import logging
 import os
 import shutil
 import sys
 import time
 
+USAGE="""
+Log Keeper follows all symlinks in given directory and creates hardlinks to prevent data loss because of file rotation
+
+For example for given directory structure:
+
+tree /logs-keeper --inodes
+logs-keeper
+├── [5774569]  containers
+│   └── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
+└── [5774570]  docker
+    └── [5774571]  example_file.json
+
+and <directory_path> set to /logs-keeper/containers, logs-keeper is going to create some additional directories:
+
+tree /logs-keeper --inodes
+logs-keeper
+├── [5774569]  containers
+│   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
+│   └── [5774580]  sumologic
+│       └── [5774581]  5774571
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+└── [5774570]  docker
+    ├── [5774571]  example_file.json
+    └── [5774574]  sumologic
+        └── [5774578]  5774571
+            └── [5774579]  1613145170
+                └── [5774571]  example_file_in_containers.json
+
+It has been created sumologic directory in both places (where the symlink is and where the link target is).
+In this directory another one is created and named with inode value. In the target directory additionaly
+timestamped dir is created
+
+Below rotation scenario is presented.
+
+Moment of rotation:
+
+tree /logs-keeper --inodes
+logs-keeper
+├── [5774569]  containers
+│   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
+│   └── [5774580]  sumologic
+│       └── [5774581]  5774571
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+└── [5774570]  docker
+    ├── [5774572]  example_file.json
+    ├── [5774571]  example_file.json.1
+    └── [5774574]  sumologic
+        └── [5774578]  5774571
+            └── [5774579]  1613145170
+                └── [5774571]  example_file_in_containers.json
+
+Handling rotation by logs-keeper:
+
+tree /logs-keeper --inodes
+logs-keeper
+├── [5774569]  containers
+│   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
+│   └── [5774580]  sumologic
+│       |── [5774581]  5774571
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+│       └── [5774576]  5774572
+│           └── [5774572]  example_file.json -> /logs-keeper/docker/sumologic/5774572/1613145543/example_file_in_containers.json
+└── [5774570]
+    ├── [5774572]  example_file.json
+    ├── [5774571]  example_file.json.1
+    └── [5774574]  sumologic
+        ├── [5774578]  5774571
+        |   └── [5774579]  1613145170
+        |       └── [5774571]  example_file_in_containers.json
+        └── [5774573]  5774572
+            └── [5774575]  1613145543
+                └── [5774572]  example_file_in_containers.json
+
+Usage:
+
+KEEP_TIME=3600 ./logs-keeper <directory_path>
+"""
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger()
 KEEP_TIME = int(os.getenv("KEEP_TIME_S", 120))
+KEEP_DIRECTORY = 'sumologic'
 
 def main(monitor_directory):
     while True:
@@ -29,7 +101,7 @@ def main(monitor_directory):
 
             fm.expire_files()
         
-        sumo_dir = os.path.join(monitor_directory, 'sumologic')
+        sumo_dir = os.path.join(monitor_directory, KEEP_DIRECTORY)
         if not os.path.isdir(sumo_dir):
             os.mkdir(sumo_dir)
         inodes = os.listdir(sumo_dir)
@@ -70,7 +142,7 @@ class FileMonitor:
     
     @property
     def dst_sumo_dir(self):
-        return os.path.join(self.dst_dirname, 'sumologic')
+        return os.path.join(self.dst_dirname, KEEP_DIRECTORY)
     
     @property
     def dst_inode_dir(self):
@@ -85,7 +157,7 @@ class FileMonitor:
 
     @property
     def src_sumo_dir(self):
-        return os.path.join(self.src_dirname, 'sumologic')
+        return os.path.join(self.src_dirname, KEEP_DIRECTORY)
 
     @property
     def src_inode_dir(self):
@@ -103,7 +175,7 @@ class FileMonitor:
     
     def link_file(self):
         """
-        self.file_path -> dirname(self.file_path)/sumologic/<inode>/<timestamp>/basename(self.file_path)
+        self.file_path -> dirname(self.file_path)/<KEEP_DIRECTORY>/<inode>/<timestamp>/basename(self.file_path)
 
         Takes real path of the file (following symlinks) and create hardlink in subdirectory to it
         """
@@ -127,7 +199,7 @@ class FileMonitor:
         """
         Scan for files which already expired and remove them
         """
-        # 1. Get all subdirectories names (inodes) from sumologic directory
+        # 1. Get all subdirectories names (inodes) from KEEP_DIRECTORY directory
         try:
             inodes = os.listdir(self.dst_sumo_dir)
         except:
@@ -163,4 +235,7 @@ class FileMonitor:
                     pass
 
 if __name__ == '__main__':
-    main(os.path.realpath(sys.argv[1]))
+    if len(sys.argv) == 2:
+        main(os.path.realpath(sys.argv[1]))
+    else:
+        print(USAGE)
