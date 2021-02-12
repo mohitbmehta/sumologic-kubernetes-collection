@@ -25,17 +25,15 @@ logs-keeper
 │   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
 │   └── [5774580]  sumologic
 │       └── [5774581]  5774571
-│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/example_file_in_containers.json
 └── [5774570]  docker
     ├── [5774571]  example_file.json
     └── [5774574]  sumologic
         └── [5774578]  5774571
-            └── [5774579]  1613145170
-                └── [5774571]  example_file_in_containers.json
+            └── [5774571]  example_file_in_containers.json
 
 It has been created sumologic directory in both places (where the symlink is and where the link target is).
-In this directory another one is created and named with inode value. In the target directory additionaly
-timestamped dir is created
+In this directory another one is created and named with inode value
 
 Below rotation scenario is presented.
 
@@ -47,14 +45,13 @@ logs-keeper
 │   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
 │   └── [5774580]  sumologic
 │       └── [5774581]  5774571
-│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/example_file_in_containers.json
 └── [5774570]  docker
     ├── [5774572]  example_file.json
     ├── [5774571]  example_file.json.1
     └── [5774574]  sumologic
         └── [5774578]  5774571
-            └── [5774579]  1613145170
-                └── [5774571]  example_file_in_containers.json
+            └── [5774571]  example_file_in_containers.json
 
 Handling rotation by logs-keeper:
 
@@ -64,19 +61,17 @@ logs-keeper
 │   ├── [5774571]  example_file_in_containers.json -> /logs-keeper/docker/example_file.json
 │   └── [5774580]  sumologic
 │       |── [5774581]  5774571
-│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/1613145170/example_file_in_containers.json
+│           └── [5774571]  example_file.json -> /logs-keeper/docker/sumologic/5774571/example_file_in_containers.json
 │       └── [5774576]  5774572
-│           └── [5774572]  example_file.json -> /logs-keeper/docker/sumologic/5774572/1613145543/example_file_in_containers.json
+│           └── [5774572]  example_file.json -> /logs-keeper/docker/sumologic/5774572/example_file_in_containers.json
 └── [5774570]
     ├── [5774572]  example_file.json
     ├── [5774571]  example_file.json.1
     └── [5774574]  sumologic
         ├── [5774578]  5774571
-        |   └── [5774579]  1613145170
-        |       └── [5774571]  example_file_in_containers.json
+        |   └── [5774571]  example_file_in_containers.json
         └── [5774573]  5774572
-            └── [5774575]  1613145543
-                └── [5774572]  example_file_in_containers.json
+            └── [5774572]  example_file_in_containers.json
 
 Usage:
 
@@ -101,17 +96,17 @@ def main(monitor_directory):
 
             fm.expire_files()
         
-        sumo_dir = os.path.join(monitor_directory, KEEP_DIRECTORY)
-        if not os.path.isdir(sumo_dir):
-            os.mkdir(sumo_dir)
-        inodes = os.listdir(sumo_dir)
+        keep_dir = os.path.join(monitor_directory, KEEP_DIRECTORY)
+        if not os.path.isdir(keep_dir):
+            os.mkdir(keep_dir)
+        inodes = os.listdir(keep_dir)
         for inode in inodes:
-            file = os.listdir(os.path.join(sumo_dir, inode))[0]
-            path = os.readlink(os.path.join(sumo_dir, inode, file))
+            file = os.listdir(os.path.join(keep_dir, inode))[0]
+            path = os.readlink(os.path.join(keep_dir, inode, file))
 
             if not os.path.isfile(path):
                 log.info(f'Removing symlink to non-existing file: {inode}')
-                shutil.rmtree(os.path.join(sumo_dir, inode))
+                shutil.rmtree(os.path.join(keep_dir, inode))
 
         time.sleep(0.2)
 
@@ -122,7 +117,7 @@ class FileMonitor:
         self.filename = os.path.basename(self._file_path)
     
     @property
-    def dst_path(self):
+    def real_file_path(self):
         return_value = self._file_path
         return_value_dirname = os.path.dirname(return_value)
         while os.path.islink(return_value):
@@ -137,63 +132,66 @@ class FileMonitor:
         return return_value
     
     @property
-    def dst_dirname(self):
-        return os.path.dirname(self.dst_path)
+    def hardlink_dirname(self):
+        return os.path.dirname(self.real_file_path)
     
     @property
-    def dst_sumo_dir(self):
-        return os.path.join(self.dst_dirname, KEEP_DIRECTORY)
+    def hardlink_keep_dir(self):
+        return os.path.join(self.hardlink_dirname, KEEP_DIRECTORY)
     
     @property
-    def dst_inode_dir(self):
-        return self.get_dst_inode_dir(str(self.inode))
-    
-    def dst_timestamp_dir(self):
-        return os.path.join(self.dst_inode_dir, str(int(time.time())))
+    def hardlink_inode_dir(self):
+        return self.get_hardlink_inode_dir(str(self.inode))
     
     @property
-    def src_dirname(self):
+    def symlink_dirname(self):
         return os.path.dirname(self._file_path)
 
     @property
-    def src_sumo_dir(self):
-        return os.path.join(self.src_dirname, KEEP_DIRECTORY)
+    def symlink_keep_dir(self):
+        return os.path.join(self.symlink_dirname, KEEP_DIRECTORY)
 
     @property
-    def src_inode_dir(self):
-        return self.get_src_inode_dir(str(self.inode))
+    def symlink_inode_dir(self):
+        return self.get_symlink_inode_dir(str(self.inode))
     
-    def get_dst_inode_dir(self, inode):
-        return os.path.join(self.dst_sumo_dir, inode)
+    def get_hardlink_inode_dir(self, inode):
+        return os.path.join(self.hardlink_keep_dir, inode)
 
-    def get_src_inode_dir(self, inode):
-        return os.path.join(self.src_sumo_dir, inode)
+    def get_symlink_inode_dir(self, inode):
+        return os.path.join(self.symlink_keep_dir, inode)
+    
+    @property
+    def hardlink_file_path(self):
+        return os.path.join(self.hardlink_inode_dir, self.filename)
+
+    @property
+    def symlink_file_path(self):
+        return os.path.join(self.symlink_inode_dir, self.filename)
     
     @property
     def inode(self):
-        return os.stat(self.dst_path, follow_symlinks=True).st_ino
+        return os.stat(self.real_file_path, follow_symlinks=True).st_ino
+    
     
     def link_file(self):
         """
-        self.file_path -> dirname(self.file_path)/<KEEP_DIRECTORY>/<inode>/<timestamp>/basename(self.file_path)
+        self.real_file_path -> dirname(self.real_file_path)/<KEEP_DIRECTORY>/<inode>/basename(self.real_file_path)
 
         Takes real path of the file (following symlinks) and create hardlink in subdirectory to it
         """
-        if os.path.isdir(self.dst_inode_dir):
+        if os.path.isdir(self.hardlink_inode_dir):
             # Skip already linked file
             return
+        log.info(f'Creating link for {self.inode}:{self.filename}')
 
         # Create hard link for inode
-        log.info(f'Creating link for {self.inode}:{self.filename}')
-        ts_dir = self.dst_timestamp_dir()
-        os.makedirs(ts_dir, exist_ok=True)
-        hardlink = os.path.join(ts_dir, self.filename)
-        os.link(self.dst_path, hardlink)
+        os.makedirs(self.hardlink_inode_dir, exist_ok=True)
+        os.link(self.real_file_path, self.hardlink_file_path)
 
         # Create symbolic link to hardlink
-        os.makedirs(self.src_inode_dir)
-        symlink = os.path.join(self.src_inode_dir, self.filename)
-        os.symlink(hardlink, symlink)
+        os.makedirs(self.symlink_inode_dir)
+        os.symlink(self.hardlink_file_path, self.symlink_file_path)
     
     def expire_files(self):
         """
@@ -201,26 +199,21 @@ class FileMonitor:
         """
         # 1. Get all subdirectories names (inodes) from KEEP_DIRECTORY directory
         try:
-            inodes = os.listdir(self.dst_sumo_dir)
+            inodes = os.listdir(self.hardlink_keep_dir)
         except:
-            log.info(f'{self.dst_sumo_dir} doesn\'t exist')
+            log.info(f'{self.hardlink_keep_dir} doesn\'t exist')
             return
 
-        # 2. For every inode check creation time (subdirectory name) and remove if it exists longer than KEEP_TIME
+        # 2. For every inode check last modification time and remove if it exists longer than KEEP_TIME
         for inode in inodes:
             if int(inode) == self.inode:
                 # Skip not rotated file
-                # ToDo: update not rotated inode timestamp
                 log.debug(f'Skipping not rotated file: {inode}')
                 continue
 
-            current = self.get_dst_inode_dir(inode)
+            current = self.get_hardlink_inode_dir(inode)
 
-            # FixMe: Check if still needed
-            try:
-                timestamp = int(os.listdir(current)[0])
-            except:
-                timestamp = 0
+            timestamp = os.stat(os.path.join(current, os.listdir(current)[0])).st_mtime
 
             if timestamp + KEEP_TIME < time.time():
                 log.info(f'Removing {inode}')
@@ -230,7 +223,7 @@ class FileMonitor:
                     pass
 
                 try:
-                    shutil.rmtree(self.get_src_inode_dir(inode))
+                    shutil.rmtree(self.get_symlink_inode_dir(inode))
                 except FileNotFoundError:
                     pass
 
