@@ -10,6 +10,7 @@ k8s_path = ${root_dir}vagrant/k8s
 dashboards_path = ${root_dir}vagrant/dashboards
 local_values_file = ${root_dir}vagrant/values.local.yaml
 vagrant_scripts_dir = ${root_dir}vagrant/scripts
+logs_keeper_path = ${root_dir}vagrant/logs-keeper/logs-keeper.py
 
 # Collector configuration
 name = collection
@@ -256,3 +257,9 @@ mdl:
 
 yamllint:
 	$(MAKE) -C ${root_dir} yamllint
+
+## Testing tools
+logs-keeper:
+	kubectl delete configmap -n "logs-keeper" logs-keeper || true
+	kubectl apply -n "logs-keeper" -f ${k8s_path}/logs-keeper.yaml
+	kubectl create configmap -n "logs-keeper" logs-keeper --from-file="${logs_keeper_path}"
